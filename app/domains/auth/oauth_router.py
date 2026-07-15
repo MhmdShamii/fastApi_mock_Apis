@@ -1,11 +1,11 @@
-import html
 from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.dependencies import CurrentUser, get_db
 from app.domains.auth.oauth_schemas import (
     OAuthError,
@@ -19,9 +19,9 @@ from app.domains.auth.oauth_service import OAuthService
 discovery_router = APIRouter(tags=["oauth"])
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
-LOGIN_ACTION = "/oauth/authorize/login"
-# Params threaded through the login form as hidden fields.
-_AUTHORIZE_FIELDS = (
+# The OAuth request context forwarded to the frontend login page and posted
+# back to /oauth/authorize/login.
+_FORWARD_FIELDS = (
     "response_type",
     "client_id",
     "redirect_uri",
@@ -39,27 +39,26 @@ def get_oauth_service(db: Annotated[AsyncSession, Depends(get_db)]) -> OAuthServ
 ServiceDep = Annotated[OAuthService, Depends(get_oauth_service)]
 
 
-def _render_login_form(params: dict[str, str | None], error: str | None) -> str:
-    hidden = "".join(
-        f'<input type="hidden" name="{html.escape(k)}" '
-        f'value="{html.escape(params.get(k) or "")}">'
-        for k in _AUTHORIZE_FIELDS
+def _login_page_redirect(
+    params: dict[str, str | None],
+    *,
+    client_name: str | None = None,
+    error: str | None = None,
+    email: str | None = None,
+) -> RedirectResponse:
+    """Hand the browser to the frontend login page, carrying the OAuth request
+    context as query params. The React page renders the form and posts the
+    fields straight back to /oauth/authorize/login."""
+    query = {k: params[k] for k in _FORWARD_FIELDS if params.get(k) is not None}
+    if client_name is not None:
+        query["client_name"] = client_name
+    if error is not None:
+        query["error"] = error
+    if email is not None:
+        query["email"] = email
+    return RedirectResponse(
+        f"{settings.oauth_login_url}?{urlencode(query)}", status_code=302
     )
-    error_html = (
-        f'<p style="color:#b00">{html.escape(error)}</p>' if error else ""
-    )
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Sign in</title></head>
-<body style="font-family:sans-serif;max-width:22rem;margin:4rem auto">
-<h1>Sign in</h1>
-{error_html}
-<form method="post" action="{html.escape(LOGIN_ACTION)}">
-{hidden}
-<p><label>Email<br><input type="email" name="email" required style="width:100%"></label></p>
-<p><label>Password<br><input type="password" name="password" required style="width:100%"></label></p>
-<p><button type="submit">Authorize</button></p>
-</form>
-</body></html>"""
 
 
 def _redirect_with_error(exc: OAuthRedirectError) -> RedirectResponse:
@@ -96,7 +95,7 @@ async def authorize(
     scope: str | None = None,
 ):
     try:
-        await service.validate_authorization_request(
+        client = await service.validate_authorization_request(
             response_type=response_type,
             client_id=client_id,
             redirect_uri=redirect_uri,
@@ -106,7 +105,8 @@ async def authorize(
         )
     except OAuthRedirectError as exc:
         return _redirect_with_error(exc)
-    # OAuthError (bad client_id/redirect_uri) propagates to the JSON handler.
+    # OAuthError (bad client_id/redirect_uri) propagates to the JSON handler:
+    # we can't safely show a login page for an unverified client/redirect_uri.
 
     params = {
         "response_type": response_type,
@@ -117,7 +117,7 @@ async def authorize(
         "state": state,
         "scope": scope,
     }
-    return HTMLResponse(_render_login_form(params, error=None))
+    return _login_page_redirect(params, client_name=client.client_name)
 
 
 @router.post("/authorize/login")
@@ -145,7 +145,7 @@ async def authorize_login(
 
     # Re-validate the request before trusting redirect_uri / issuing a code.
     try:
-        await service.validate_authorization_request(
+        client = await service.validate_authorization_request(
             response_type=response_type,
             client_id=client_id,
             redirect_uri=redirect_uri,
@@ -158,9 +158,13 @@ async def authorize_login(
 
     user = await service.authenticate(email, password)
     if user is None:
-        return HTMLResponse(
-            _render_login_form(params, error="Invalid email or password"),
-            status_code=200,
+        # Bounce back to the styled login page with the error, rather than
+        # rendering our own. Same message for bad password and unknown email.
+        return _login_page_redirect(
+            params,
+            client_name=client.client_name,
+            error="invalid_credentials",
+            email=email,
         )
 
     code = await service.create_authorization_code(

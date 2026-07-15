@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     refresh_token_ttl_seconds: int = 604800
     auth_code_ttl_seconds: int = 60
     oauth_issuer: str = Field(...)
+    # Frontend page that renders the OAuth login form. /oauth/authorize
+    # redirects the browser here with the request context as query params.
+    oauth_login_url: str = "http://localhost:5173/oauth/login"
     # Comma-separated list of browser origins allowed to call the API (CORS).
     cors_origins: str = "http://localhost:5173"
 
