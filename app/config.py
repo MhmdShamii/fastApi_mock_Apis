@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     refresh_token_ttl_seconds: int = 604800
     auth_code_ttl_seconds: int = 60
     oauth_issuer: str = Field(...)
+    # Comma-separated list of browser origins allowed to call the API (CORS).
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 @lru_cache()
 def get_settings() -> "Settings":
