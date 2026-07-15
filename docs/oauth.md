@@ -23,16 +23,24 @@ Discovery is at the **site root** (not under `/oauth`) as RFC 8414 requires.
 
 ## The flow
 
+The login UI is **hosted by the frontend**, not this server. `/oauth/authorize`
+validates the request then redirects the browser to the frontend login page
+(`OAUTH_LOGIN_URL`, default `http://localhost:5173/oauth/login`), carrying the
+request context as query params. The frontend renders its own form and posts the
+fields back to `/oauth/authorize/login`.
+
 ```
-client                         authorization server                user
-  │  GET /oauth/authorize (PKCE challenge, state) ─────────►
-  │  ◄──────────────────────── 200 HTML login form ────────► (enters creds)
-  │  POST /oauth/authorize/login (creds + params) ─────────►
-  │  ◄──── 302 redirect_uri?code=…&state=… ────────────────
-  │  POST /oauth/token (code + code_verifier) ─────────────►
-  │  ◄──── {access_token, refresh_token, …} ───────────────
-  │  GET /oauth/userinfo (Bearer access_token) ────────────►
-  │  POST /oauth/token (grant_type=refresh_token) ─────────►  (rotates)
+browser                    authorization server               frontend login page
+  │  GET /oauth/authorize (PKCE challenge, state) ─────►
+  │  ◄── 302 OAUTH_LOGIN_URL?client_id&redirect_uri&code_challenge
+  │        &code_challenge_method&state&scope&client_name ──►  (renders form)
+  │  POST /oauth/authorize/login (form: params + email + password) ─►
+  │  ◄── 302 redirect_uri?code=…&state=…   (bad creds ◄── 302 back to
+  │                                          OAUTH_LOGIN_URL?…&error&email)
+  │  POST /oauth/token (code + code_verifier) ─────────►
+  │  ◄── {access_token, refresh_token, …} ─────────────
+  │  GET /oauth/userinfo (Bearer access_token) ────────►
+  │  POST /oauth/token (grant_type=refresh_token) ─────►  (rotates)
 ```
 
 ## Contracts
@@ -47,11 +55,18 @@ echoed back), `scope` (optional).
   redirect — an unvalidated redirect target is never trusted).
 - Any other invalid param (with a valid redirect_uri) → **302** to
   `redirect_uri?error=…&error_description=…&state=…`.
-- Valid → **200** HTML login form with all params as hidden fields.
+- Valid → **302** to `OAUTH_LOGIN_URL` with the request context as query params:
+  `response_type, client_id, redirect_uri, code_challenge,
+  code_challenge_method, state, scope`, plus `client_name` (for display).
 
 ### POST `/oauth/authorize/login`
-Form fields: the authorize params (hidden) + `email` + `password`.
-- Bad credentials → **200**, re-renders the form with an error.
+Form-encoded (`application/x-www-form-urlencoded`): the authorize params
+(`response_type, client_id, redirect_uri, code_challenge, code_challenge_method,
+state, scope`) + `email` + `password`. Submit it as a **native form POST /
+navigation**, not `fetch` — the server replies with browser 302 redirects.
+
+- Bad credentials → **302** back to `OAUTH_LOGIN_URL?…&error=invalid_credentials
+  &email=<email>` (frontend shows the error and pre-fills the email).
 - Success → **302** `redirect_uri?code=<code>&state=<state>`. The code is a
   32-byte URL-safe random string, single-use, expires in 60s.
 
@@ -74,7 +89,7 @@ Success (both) → **200**:
 ```
 Errors → RFC 6749 shape `{ "error": "...", "error_description": "..." }`.
 
-### GET `/oauth/userinfo`V
+### GET `/oauth/userinfo`
 `Authorization: Bearer <access_token>`. Returns fresh from the DB (not JWT
 claims):
 ```json
@@ -101,7 +116,7 @@ token and its whole family. **Always 200**, even for unknown tokens (RFC 7009).
 
 | client_id | redirect_uri | auth method |
 |---|---|---|
-| `wakilni-mcp` | `http://localhost:8080/callback` | none (public, PKCE) |
+| `wakilni-mcp` | `http://localhost:5173/callback` | none (public, PKCE) |
 
 Change it with a new migration or SQL against `oauth_clients`.
 
@@ -126,7 +141,7 @@ login endpoint directly):
 ```bash
 CODE=$(curl -s -i -X POST localhost:8000/oauth/authorize/login \
   -d response_type=code -d client_id=wakilni-mcp \
-  -d redirect_uri=http://localhost:8080/callback \
+  -d redirect_uri=http://localhost:5173/callback \
   -d code_challenge=$CHALLENGE -d code_challenge_method=S256 \
   -d state=xyz -d scope=read \
   -d email=u@example.com -d password=supersecret1 \
@@ -138,7 +153,7 @@ echo "code=$CODE"
 ```bash
 curl -s -X POST localhost:8000/oauth/token \
   -d grant_type=authorization_code -d code=$CODE \
-  -d redirect_uri=http://localhost:8080/callback \
+  -d redirect_uri=http://localhost:5173/callback \
   -d client_id=wakilni-mcp -d code_verifier=$VERIFIER
 ```
 
@@ -162,6 +177,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/oauth/revoke \
 
 To try the real browser flow, open the authorize URL in a browser:
 ```
-http://localhost:8000/oauth/authorize?response_type=code&client_id=wakilni-mcp&redirect_uri=http://localhost:8080/callback&code_challenge=<CHALLENGE>&code_challenge_method=S256&state=xyz&scope=read
+http://localhost:8000/oauth/authorize?response_type=code&client_id=wakilni-mcp&redirect_uri=http://localhost:5173/callback&code_challenge=<CHALLENGE>&code_challenge_method=S256&state=xyz&scope=read
 ```
 You'll get the login form; submitting it redirects to the callback with `?code=…&state=…`.
