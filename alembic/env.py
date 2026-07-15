@@ -13,6 +13,7 @@ from app.db import Base
 
 # Import every model file here so Base.metadata knows about all tables.
 # Add new domain models to this list as you create them.
+from app.domains.auth import models as _auth_models  # noqa: F401
 from app.domains.users import models as _users_models  # noqa: F401
 
 

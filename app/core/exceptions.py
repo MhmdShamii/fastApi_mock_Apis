@@ -22,3 +22,17 @@ class ConflictError(AppError):
 
     status_code = 409
     detail = "Resource conflict"
+
+
+class UnauthorizedError(AppError):
+    """Authentication is missing or invalid."""
+
+    status_code = 401
+    detail = "Not authenticated"
+
+
+class ForbiddenError(AppError):
+    """The caller is authenticated but not allowed to perform this action."""
+
+    status_code = 403
+    detail = "Not permitted"
