@@ -21,7 +21,7 @@ class UserCreate(UserBase):
     role: Role = Role.CUSTOMER
 
 
-    class UserAdminUpdate(BaseModel):
+class UserAdminUpdate(BaseModel):
     """Full update surface — only INTERNAL callers may use this schema."""
 
     email: EmailStr | None = None
