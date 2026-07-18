@@ -15,6 +15,7 @@ from app.db import Base
 # Add new domain models to this list as you create them.
 from app.domains.auth import models as _auth_models  # noqa: F401
 from app.domains.auth import oauth_models as _oauth_models  # noqa: F401
+from app.domains.orders import models as _orders_models  # noqa: F401
 from app.domains.users import models as _users_models  # noqa: F401
 
 

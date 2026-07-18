@@ -7,6 +7,7 @@ from app.core.exceptions import AppError
 from app.domains.auth.oauth_router import discovery_router, router as oauth_router
 from app.domains.auth.oauth_schemas import OAuthError
 from app.domains.auth.router import router as auth_router
+from app.domains.orders.router import router as orders_router
 from app.domains.users.router import router as users_router
 
 app = FastAPI(title="Wakilni Mock Backend")
@@ -44,3 +45,4 @@ app.include_router(discovery_router)
 app.include_router(oauth_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(orders_router)
