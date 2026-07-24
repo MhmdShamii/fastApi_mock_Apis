@@ -10,6 +10,13 @@ class AppError(Exception):
         super().__init__(self.detail)
 
 
+class BadRequestError(AppError):
+    """The request is malformed in a way Pydantic validation doesn't cover."""
+
+    status_code = 400
+    detail = "Bad request"
+
+
 class NotFoundError(AppError):
     """A requested resource does not exist."""
 

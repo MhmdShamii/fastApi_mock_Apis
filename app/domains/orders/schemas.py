@@ -47,3 +47,62 @@ class OrderList(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class OrderSearchFilters(BaseModel):
+    """Query-parameter model for GET /orders/search. Every filter is optional
+    and combined with AND on top of the caller's visibility scope."""
+
+    status: OrderStatus | None = None
+    tracking_id_prefix: str | None = Field(default=None, max_length=20)
+    receiver_name_contains: str | None = Field(default=None, max_length=100)
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class OrderCancelRequest(BaseModel):
+    """Optional body for POST /orders/{tracking_id}/cancel. ``reason`` is
+    accepted for forward-compatibility but not persisted by the mock."""
+
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class OrderCommentCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class OrderCommentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    user_id: int
+    content: str
+    created_at: datetime
+
+
+class OrderCommentList(BaseModel):
+    items: list[OrderCommentRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class BulkOrderItem(OrderCreate):
+    """One order inside a bulk request. ``owner_user_id`` is honored only for
+    INTERNAL callers (a customer's rows are always owned by themselves)."""
+
+    owner_user_id: int | None = None
+
+
+class BulkOrderCreate(BaseModel):
+    # Length is validated in the service layer so empty / oversized batches
+    # return 400 (per the contract) rather than Pydantic's 422.
+    orders: list[BulkOrderItem]
+
+
+class BulkOrderCreateResult(BaseModel):
+    created: list[OrderRead]
+    count: int
